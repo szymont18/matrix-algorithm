@@ -1,4 +1,4 @@
-from matrix_multiplication import binet, strassen, get_and_reset_flops
+from matrix_multiplication import binet, strassen, alpha_tensor, get_and_reset_flops
 import numpy as np
 from matplotlib import pyplot as plt
 import time
@@ -18,21 +18,23 @@ def is_same(A1, A2):
     return True
 
 
-def perform_tests(dims, *args):
+def perform_tests(dims):
     """
-    Perform  time and correct test on every function from *args.
+    Perform  time and correct test on every function from dims.keys().
     Return tuples (flops, times) where flops is number of floating point operation in A * B and time is whole time
     for A * B operation
     """
-    times = {f.__name__: [] for f in args}
-    flops = {f.__name__: [] for f in args}
-    for dim in dims:
-        A = np.random.rand(dim, dim)
-        B = np.random.rand(dim, dim)
-        for f in args:
+    times = {f.__name__: [] for f in dims.keys()}
+    flops = {f.__name__: [] for f in dims.keys()}
+
+    for f, dim_list in dims.items():
+        for dim1, dim2 in dim_list:
+            A = np.random.rand(dim1[0], dim1[1])
+            B = np.random.rand(dim2[0], dim2[1])
+
             time_f = time.time()
             if not is_same(f(A, B), A @ B):
-                print(A @ B, f(A, B), sep="\n____________________________\n")
+                print()
                 return False
 
             times[f.__name__].append(time.time() - time_f)
@@ -42,8 +44,9 @@ def perform_tests(dims, *args):
 
 
 def plot(y, x, xlabel, ylabel, title):
-    plt.plot(x, y['binet'], label="Binet Method", color='blue')
-    plt.plot(x, y['strassen'], label="Strassen Method", color='red')
+    plt.plot(x['binet'], y['binet'], label="Binet Method", color='blue')
+    plt.plot(x['strassen'], y['strassen'], label="Strassen Method", color='red')
+    plt.plot(x['alpha_tensor'], y['alpha_tensor'], label="Alpha Tensor method", color='green')
 
     plt.xlabel(xlabel)
     plt.ylabel(ylabel)
@@ -53,9 +56,26 @@ def plot(y, x, xlabel, ylabel, title):
     plt.show()
 
 
-dims = [2, 4, 8, 16, 32, 64, 128]
-flops, times = perform_tests(dims, binet, strassen)
-x = [el * el for el in dims]
+binet_strassen_dims = [[(2, 2), (2, 2)], [(4, 4), (4, 4)], [(8, 8), (8, 8)], [(16, 16), (16, 16)],
+                       [(32, 32), (32, 32)], [(64, 64), (64, 64)], [(128, 128), (128, 128)]]
+alpha_tensor_dims = [[(4, 5), (5, 5)], [(16, 25), (25, 25)], [(64, 125), (125, 125)]]
 
-plot(flops, x, 'Number of elements', 'Flops', 'Flops comparison between Binet and Strassen')
-plot(times, x, 'Number of elements', 'Time[s]', 'Time comparison between Binet and Strassen')
+products_binet_strassen = list(map(lambda sub_arr: [x * y for x, y in sub_arr], binet_strassen_dims))
+
+binet_strassen_elements = list(map(lambda sub_arr: sub_arr[0] * sub_arr[1], products_binet_strassen))
+
+products_alpha_tensor = list(map(lambda sub_arr: [x * y for x, y in sub_arr], alpha_tensor_dims))
+alpha_tensor_elemets = list(map(lambda sub_arr: sub_arr[0] * sub_arr[1], products_alpha_tensor))
+
+dims = {binet: binet_strassen_dims,
+        strassen: binet_strassen_dims,
+        alpha_tensor: alpha_tensor_dims}
+flops, times = perform_tests(dims)
+
+number_of_elements = {binet.__name__: binet_strassen_elements,
+                      strassen.__name__: binet_strassen_elements,
+                      alpha_tensor.__name__: alpha_tensor_elemets}
+
+plot(flops, number_of_elements, 'Number of elements', 'Flops', 'Flops comparison between Matrix Multiplication Methods')
+plot(times, number_of_elements, 'Number of elements', 'Time[s]',
+     'Time comparison between Matrix Multiplication Methods')
