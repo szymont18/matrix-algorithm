@@ -58,20 +58,22 @@ def plot(y, x, xlabel, ylabel, title):
 
 binet_strassen_dims = [[(2, 2), (2, 2)], [(4, 4), (4, 4)], [(8, 8), (8, 8)], [(16, 16), (16, 16)],
                        [(32, 32), (32, 32)], [(64, 64), (64, 64)], [(128, 128), (128, 128)]]
+
 alpha_tensor_dims = [[(4, 5), (5, 5)], [(16, 25), (25, 25)], [(64, 125), (125, 125)]]
 
 products_binet_strassen = list(map(lambda sub_arr: [x * y for x, y in sub_arr], binet_strassen_dims))
-
-binet_strassen_elements = list(map(lambda sub_arr: sub_arr[0] * sub_arr[1], products_binet_strassen))
+binet_strassen_elements = list(map(lambda sub_arr: sub_arr[0] + sub_arr[1], products_binet_strassen))
 
 products_alpha_tensor = list(map(lambda sub_arr: [x * y for x, y in sub_arr], alpha_tensor_dims))
-alpha_tensor_elemets = list(map(lambda sub_arr: sub_arr[0] * sub_arr[1], products_alpha_tensor))
+alpha_tensor_elemets = list(map(lambda sub_arr: sub_arr[0] + sub_arr[1], products_alpha_tensor))
 
 dims = {binet: binet_strassen_dims,
         strassen: binet_strassen_dims,
         alpha_tensor: alpha_tensor_dims}
+
 flops, times = perform_tests(dims)
 
+print(f'flops = {flops}\ntimes={times}')
 number_of_elements = {binet.__name__: binet_strassen_elements,
                       strassen.__name__: binet_strassen_elements,
                       alpha_tensor.__name__: alpha_tensor_elemets}
