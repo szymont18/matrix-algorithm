@@ -1,0 +1,265 @@
+using LinearAlgebra, DataFrames, BenchmarkTools, GFlops, Statistics, Plots
+function divide_matrix(M, n)
+    """
+    :return: Four pieces of Matrix M (divided in half)
+    This is an auxiliary function for strassen
+    """
+    m = div(n, 2)
+    A11 = M[1:m, 1:m]
+    A12 = M[1:m, m+1:n]
+    A21 = M[m+1:n, 1:m]
+    A22 = M[m+1:n, m+1:n]
+
+    return A11, A12, A21, A22
+end
+function strassen(A, B)
+    """
+    :return: C = A * B where A, B, C are matrices
+    We can assume that dimensions of A and B are 2 ^ p.
+    """
+    
+    n = size(A, 1)
+
+    if n == 1
+        
+        if typeof(A) == Vector{Float64} && typeof(B) == Vector{Float64}
+            return A .* B
+        end
+        
+        return A * B
+    end
+
+    A11, A12, A21, A22 = divide_matrix(A, n)
+    B11, B12, B21, B22 = divide_matrix(B, n)
+
+    
+    P1 = strassen(A11 + A22, B11 + B22)
+    P2 = strassen(A21 + A22, B11)
+    P3 = strassen(A11, B12 - B22)
+    P4 = strassen(A22, B21 - B11)
+    P5 = strassen(A11 + A12, B22)
+    P6 = strassen(A21 - A11, B11 + B12)
+    P7 = strassen(A12 - A22, B21 + B22)
+
+    C11 = P1 + P4 - P5 + P7
+    C12 = P3 + P5
+    C21 = P2 + P4
+    C22 = P1 - P2 + P3 + P6
+
+    return vcat(hcat(C11, C12), hcat(C21, C22))
+end
+
+struct NonSquareMatrixError <: Exception
+    message::String
+end
+
+function matrix_inverse(A)
+    """
+    :return matrix B, such that A * B = I
+    """
+    
+    n = size(A, 1)
+    m = size(A, 2)
+    
+    if n != m 
+        throw(NonSquareMatrixError("Matrix is not the square"))
+    end
+        
+    if n == 1
+        return [1 / A[1, 1]]
+    end
+    
+        
+    m = div(n, 2)
+    A11, A12, A21, A22 = divide_matrix(A, n)
+    
+    A11_inversed = matrix_inverse(A11)
+    S22 = A22 - strassen(strassen(A21, A11_inversed), A12)
+    S22_inversed = matrix_inverse(S22)
+    
+    
+    
+    B = zeros(n, n)
+    eye = Matrix{Float64}(I, div(n, 2) , div(n, 2))
+    
+    B[1:m, 1:m] = strassen(A11_inversed, eye + strassen(strassen(strassen(A12, S22_inversed), A21), A11_inversed))
+    B[1:m, m+1:n] = strassen(strassen(-A11_inversed, A12), S22_inversed)
+    B[m+1:n, 1:m] = strassen(strassen(-S22_inversed, A21), A11_inversed)
+    B[m+1:n, m+1:n] = S22_inversed
+    
+    return B
+    
+end
+
+min_value = 0.00000001
+max_value = 1
+inversion_times = DataFrame(size = [], flops= [], time = [])
+
+for i in 1: 5
+    for size in 1: 6
+        A = min_value .+ (max_value - min_value) * rand(2 ^ size, 2 ^ size)
+        m_time = @elapsed matrix_inverse(A)
+        m_flops = @count_ops matrix_inverse($A)
+        push!(inversion_times, [2^size , m_flops, m_time])
+    end
+end   
+
+for i in 1:nrow(inversion_times)
+    inversion_times[i, :flops] = inversion_times[i, :flops].add64 + inversion_times[i, :flops].sub64 + inversion_times[i, :flops].div64 + inversion_times[i, :flops].neg64 + inversion_times[i, :flops].mul64
+end
+display(inversion_times)
+
+inversion_time_group = groupby(inversion_times, [:size])
+inversion_time_statistics = combine(inversion_time_group, "time" => mean, "flops" => mean, "time" => std, "flops" => std)
+
+plot(inversion_time_statistics.size, inversion_time_statistics.time_mean, 
+    size = (600, 500), yerr=inversion_time_statistics.time_std,
+    yaxis = "TIME[s]", xaxis = "Number of rows", label="Time")
+	
+plot(inversion_time_statistics.size, inversion_time_statistics.flops_mean, 
+    size = (600, 500), color="red",yerr=inversion_time_statistics.flops_std,
+    yaxis = "FLOPS", xaxis = "Number of rows", label="Flops")
+
+A = [0.5488 0.5929; 
+    0.7094 0.0734];
+
+A2 = [0.2722 0.1980 0.1500 0.4826;
+    0.6070 0.3818 0.2489 0.6313;
+    0.1088 0.9294 0.1723 0.5508;
+    0.3195 0.5077 0.3096 0.9883];
+
+display(matrix_inverse(A))
+display(matrix_inverse(A2))
+
+function _matrix_LU_factor(A, n)
+    if n == 2
+        a22 = A[2,2] - A[2,1] * A[1,2] / A[1,1]
+        return LowerTriangular([A[1,1] 0; A[2,1] a22]),  UnitUpperTriangular([1 A[1,2]/A[1,1]; 0 1])
+    end
+    """
+    Helping function to matrix_LU_factor() func
+    """
+    m = div(n, 2)
+
+    A11, A12, A21, A22 = divide_matrix(A, n)
+    L11, U11 = _matrix_LU_factor(A11, m)
+
+    U12 = strassen(matrix_inverse(L11),A12)
+    L21 = strassen(A21,matrix_inverse(U11))
+
+    S = A22 - strassen(L21, U12)
+
+    L22, U22 = _matrix_LU_factor(S, m)
+
+    L = vcat(hcat(L11, zeros(m,m)), hcat(L21, L22))
+    U = vcat(hcat(U11, U12), hcat(zeros(m,m), U22))
+    return LowerTriangular(L), UnitUpperTriangular(U)
+end
+
+
+function matrix_LU_factor(A)
+    """
+    :return matrixes L, U : L * U = A and L is upper triangular matrix and U is lower triangular matrix
+    A must be in shape (2^i, 2^i) where i is Natural
+    """
+    
+    n = size(A, 1)
+    m = size(A, 2)
+    
+    if n != m 
+        throw(NonSquareMatrixError("Matrix is not the square"))
+    end
+    log2_n = log2(n)
+    if !(trunc(Int, log2_n) - log2_n ≈ 0)
+        throw(ArgumentError("A, not in (2^i, 2^i) shape, shape= $(size(A))"))
+    end
+
+    return _matrix_LU_factor(A, n)
+end
+
+min_value = 0.00000001
+max_value = 1
+LU_times = DataFrame(size = [], flops= [], time = [])
+
+for i in 1: 5
+    for size in 1: 6
+        A = min_value .+ (max_value - min_value) * rand(2 ^ size, 2 ^ size)
+        m_time = @elapsed matrix_LU_factor(A)
+        m_flops = @count_ops matrix_LU_factor($A)
+        push!(LU_times, [2^size, m_flops, m_time])
+    end
+end    
+
+for i in 1:nrow(LU_times)
+    LU_times[i, :flops] = LU_times[i, :flops].add64 + LU_times[i, :flops].sub64 + LU_times[i, :flops].div64 + LU_times[i, :flops].neg64 + LU_times[i, :flops].mul64
+end
+display(LU_times)
+
+LU_time_group = groupby(LU_times, [:size])
+LU_time_statistics = combine(LU_time_group, "time" => mean, "flops" => mean, "time" => std, "flops" => std)
+plot(LU_time_statistics.size, LU_time_statistics.time_mean, 
+    size = (600, 500), yerr=LU_time_statistics.time_std,
+    yaxis = "TIME[s]", xaxis = "Number of rows", label="Time")
+	
+plot(LU_time_statistics.size, LU_time_statistics.flops_mean, 
+    size = (600, 500), color="red",yerr=LU_time_statistics.flops_std,
+    yaxis = "FLOPS", xaxis = "Number of rows", label="Flops")
+	
+A = [0.5488 0.5929; 
+    0.7094 0.0734]
+
+L_U = matrix_LU_factor(A)
+display(L_U[1])
+display(L_U[2])
+display(prod(L_U))
+
+display(lu(A))
+
+function matrix_determinant(A)
+    """
+    :return determinant of matrix
+    A must be in shape (2^i, 2^i) where i is Natural
+    """
+    
+    L, U = matrix_LU_factor(A)
+
+    diagonal = [L[i,i] for i in 1:size(A, 1)]
+    return prod(diagonal)
+end
+
+min_value = 0.00000001
+max_value = 1
+det_times = DataFrame(size = [], flops= [], time = [])
+
+for i in 1: 5
+    for size in 1: 6
+        A = min_value .+ (max_value - min_value) * rand(2 ^ size, 2 ^ size)
+        m_time = @elapsed matrix_LU_factor(A)
+        m_flops = @count_ops matrix_LU_factor($A)
+        push!(det_times, [2 ^ size, m_flops, m_time])
+    end
+end     
+
+for i in 1:nrow(det_times)
+    det_times[i, :flops] = det_times[i, :flops].add64 + det_times[i, :flops].sub64 + det_times[i, :flops].div64 + det_times[i, :flops].neg64 + det_times[i, :flops].mul64
+end
+display(det_times)
+
+det_time_group = groupby(det_times, [:size])
+det_time_statistics = combine(det_time_group, "time" => mean, "flops" => mean, "time" => std, "flops" => std)
+
+plot(det_time_statistics.size, det_time_statistics.time_mean, 
+    size = (600, 500), yerr=det_time_statistics.time_std,
+    yaxis = "TIME[s]", xaxis = "Number of rows", label="Time")
+	
+plot(det_time_statistics.size, det_time_statistics.flops_mean, 
+    size = (600, 500), color="red",yerr=det_time_statistics.flops_std,
+    yaxis = "FLOPS", xaxis = "Number of rows", label="Flops")
+
+A = [0.5488 0.5929; 
+    0.7094 0.0734]
+
+det_A = matrix_determinant(A)
+display(det_A)
+
+# display(det(A))
